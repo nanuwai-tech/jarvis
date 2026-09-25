@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { TrackReferenceOrPlaceholder } from "@livekit/components-react";
+import HologramAvatar3D from "./HologramAvatar3D";
 
 interface HologramAvatarProps {
   audioTrack?: TrackReferenceOrPlaceholder;
@@ -84,9 +85,10 @@ export default function HologramAvatar({
     };
   }, [audioTrack]);
 
-  // Main Canvas Rendering Loop with 3D Hologram, Scanlines, Particle System, and Lip Sync
+  const mouthOpeningRef = useRef(0);
+  // Main Canvas Rendering Loop with Scanlines and Particle System
   useEffect(() => {
-    if (!imageLoaded || !canvasRef.current) return;
+    if (!canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
@@ -96,15 +98,7 @@ export default function HologramAvatar({
     const particles: Particle[] = [];
     const maxParticles = 65;
 
-    // Mouth geometry in original 746 x 522 image
-    const origW = 746;
-    const origH = 522;
-    const mouthCenterOrigX = 373;
-    const mouthSeamOrigY = 270;
-    const mouthWidthOrig = 90;
-
     let smoothedAudioLevel = 0;
-    let mouthOpening = 0;
     let time = 0;
 
     const handleResize = () => {
@@ -124,7 +118,6 @@ export default function HologramAvatar({
         const buffer = new Uint8Array(analyserRef.current.frequencyBinCount);
         analyserRef.current.getByteFrequencyData(buffer);
         
-        // Focus on vocal formant speech frequencies (bins 2 to 24)
         let sum = 0;
         const count = 22;
         for (let i = 2; i < 24; i++) {
@@ -132,20 +125,18 @@ export default function HologramAvatar({
         }
         rawAudioLevel = sum / (count * 255);
       } else if (state === "speaking") {
-        // Fallback natural speaking modulation if audio context is in direct speaker pipe
         const mod1 = Math.sin(time * 12) * 0.4 + 0.5;
         const mod2 = Math.cos(time * 22) * 0.3;
         rawAudioLevel = Math.max(0, mod1 + mod2);
       }
 
-      // Smooth attack and decay for realistic lip opening physics
       if (rawAudioLevel > smoothedAudioLevel) {
         smoothedAudioLevel += (rawAudioLevel - smoothedAudioLevel) * 0.45;
       } else {
         smoothedAudioLevel += (rawAudioLevel - smoothedAudioLevel) * 0.22;
       }
 
-      mouthOpening = Math.min(1.0, smoothedAudioLevel * 1.5);
+      mouthOpeningRef.current = Math.min(1.0, smoothedAudioLevel * 1.5);
 
       // 2. Clear Screen & Draw Ambient Deep Space Vignette
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -163,10 +154,10 @@ export default function HologramAvatar({
       ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 3. Compute Hologram Size and Position
-      const img = imageRef.current;
-      if (!img) return;
+      ctx.save();
 
+      const origW = 746;
+      const origH = 522;
       const scale = Math.min(
         (canvas.width * 0.95) / origW,
         (canvas.height * 0.95) / origH
@@ -174,96 +165,15 @@ export default function HologramAvatar({
       const renderW = origW * scale;
       const renderH = origH * scale;
 
-      // 3D floating & organic breathing motion
       const floatY = Math.sin(time * 1.4) * 5;
       const floatX = Math.cos(time * 0.8) * 2;
       const renderX = (canvas.width - renderW) / 2 + floatX;
       const renderY = (canvas.height - renderH) / 2 + floatY;
 
-      ctx.save();
-
-      // 4. Hologram Glow / Volumetric Aura Behind Avatar
-      const auraPulse = Math.sin(time * 2) * 0.15 + (state === "speaking" ? 0.35 + mouthOpening * 0.3 : 0.2);
-      const glowGrad = ctx.createRadialGradient(
-        renderX + renderW / 2,
-        renderY + renderH * 0.4,
-        20 * scale,
-        renderX + renderW / 2,
-        renderY + renderH * 0.4,
-        280 * scale
-      );
-      glowGrad.addColorStop(0, `rgba(0, 229, 255, ${auraPulse * 0.5})`);
-      glowGrad.addColorStop(0.6, `rgba(0, 180, 216, ${auraPulse * 0.2})`);
-      glowGrad.addColorStop(1, "rgba(0, 229, 255, 0)");
-      ctx.fillStyle = glowGrad;
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // 5. Draw Avatar with Dynamic Lip-Sync Mesh Slicing
-      const jawDisplacement = mouthOpening * (18 * scale);
-
-      // (A) Upper Head Section (from top down to upper lip seam)
-      ctx.drawImage(
-        img,
-        0, 0, origW, mouthSeamOrigY,
-        renderX, renderY, renderW, mouthSeamOrigY * scale
-      );
-
-      // (B) Inner Oral Cavity Holographic Glow (Revealed when mouth opens)
-      if (jawDisplacement > 0.8) {
-        const mouthCanvasX = renderX + (mouthCenterOrigX - mouthWidthOrig / 2) * scale;
-        const mouthCanvasY = renderY + mouthSeamOrigY * scale - 2;
-        const mouthCanvasW = mouthWidthOrig * scale;
-        const mouthCanvasH = jawDisplacement + 3;
-
-        // Glowing cyan cavity
-        ctx.save();
-        const cavityGrad = ctx.createRadialGradient(
-          mouthCanvasX + mouthCanvasW / 2,
-          mouthCanvasY + mouthCanvasH / 2,
-          1,
-          mouthCanvasX + mouthCanvasW / 2,
-          mouthCanvasY + mouthCanvasH / 2,
-          mouthCanvasW * 0.6
-        );
-        cavityGrad.addColorStop(0, `rgba(0, 240, 255, ${Math.min(0.9, mouthOpening * 1.2)})`);
-        cavityGrad.addColorStop(0.5, `rgba(0, 150, 210, ${Math.min(0.6, mouthOpening * 0.8)})`);
-        cavityGrad.addColorStop(1, "rgba(0, 50, 90, 0)");
-        
-        ctx.fillStyle = cavityGrad;
-        ctx.beginPath();
-        ctx.ellipse(
-          mouthCanvasX + mouthCanvasW / 2,
-          mouthCanvasY + mouthCanvasH / 2,
-          (mouthCanvasW / 2) * (0.8 + mouthOpening * 0.3),
-          mouthCanvasH / 2,
-          0, 0, Math.PI * 2
-        );
-        ctx.fill();
-
-        // Horizontal digital laser lines inside mouth
-        ctx.strokeStyle = `rgba(0, 255, 255, ${0.4 + mouthOpening * 0.5})`;
-        ctx.lineWidth = 1.2;
-        for (let ly = mouthCanvasY + 2; ly < mouthCanvasY + mouthCanvasH; ly += 3.5 * scale) {
-          ctx.beginPath();
-          ctx.moveTo(mouthCanvasX + 4, ly);
-          ctx.lineTo(mouthCanvasX + mouthCanvasW - 4, ly);
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-
-      // (C) Lower Jaw / Chin Section (Shifted down dynamically with speech audio)
-      const jawOrigHeight = origH - mouthSeamOrigY;
-      ctx.drawImage(
-        img,
-        0, mouthSeamOrigY, origW, jawOrigHeight,
-        renderX, renderY + mouthSeamOrigY * scale + jawDisplacement, renderW, jawOrigHeight * scale
-      );
-
       // 6. Holographic Scanline Overlay & Vertical Raster Beams
       const scanlineSpacing = 3;
       ctx.fillStyle = "rgba(0, 229, 255, 0.035)";
-      for (let y = renderY; y < renderY + renderH + jawDisplacement; y += scanlineSpacing) {
+      for (let y = renderY; y < renderY + renderH; y += scanlineSpacing) {
         ctx.fillRect(renderX, y, renderW, 1);
       }
 
@@ -337,11 +247,12 @@ export default function HologramAvatar({
   return (
     <div
       onClick={onScreenClick}
-      className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#010408] cursor-pointer select-none"
+      className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#010408] cursor-pointer select-none relative"
     >
+      <HologramAvatar3D mouthOpeningRef={mouthOpeningRef} textureUrl="/avatar.png" />
       <canvas
         ref={canvasRef}
-        className="w-full h-full block"
+        className="w-full h-full block absolute inset-0 pointer-events-none z-10 mix-blend-screen"
       />
     </div>
   );
