@@ -224,7 +224,19 @@ export default function HologramAvatar({
       onClick={onScreenClick}
       className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#010408] cursor-pointer select-none relative"
     >
-      <HologramAvatar3D mouthOpeningRef={mouthOpeningRef} textureUrl="/hologram_base.png" />
+      {/* Background Dashboard Image */}
+      <img 
+        src="/hologram_base.png" 
+        alt="Hologram Dashboard" 
+        className="absolute inset-0 w-full h-full object-cover z-0 opacity-80"
+      />
+      
+      {/* 3D Animated Galaxy Overlay */}
+      <div className="absolute inset-0 z-0">
+        <HologramAvatar3D mouthOpeningRef={mouthOpeningRef} />
+      </div>
+
+      {/* 2D Canvas for Scanlines and UI Particles */}
       <canvas
         ref={canvasRef}
         className="w-full h-full block absolute inset-0 pointer-events-none z-10 mix-blend-screen"

@@ -1,137 +1,157 @@
 "use client";
 
 import React, { useRef, useMemo, useEffect, useState } from "react";
-import { Canvas, useFrame, useLoader } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
 interface HologramMeshProps {
   mouthOpeningRef: React.MutableRefObject<number>;
-  textureUrl: string;
 }
 
-// Custom Shader Material for Perspective-Correct Galaxy Rotation
-const HologramShaderMaterial = {
-  uniforms: {
-    uTexture: { value: null },
-    uTime: { value: 0 },
-    uAudioLevel: { value: 0 },
-  },
-  vertexShader: `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      // Slight 3D hover/breathing effect on vertices based on time
-      vec3 pos = position;
-      pos.z += sin(pos.x * 5.0 + uTime) * 0.02;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+function AnimatedGalaxy({ mouthOpeningRef }: HologramMeshProps) {
+  const pointsRef = useRef<THREE.Points>(null);
+
+  const parameters = {
+    count: 35000,
+    size: 0.03,
+    radius: 4.5,
+    branches: 5,
+    spin: 1.2,
+    randomness: 0.35,
+    randomnessPower: 3,
+    insideColor: new THREE.Color("#00ffff"), // Bright cyan core
+    outsideColor: new THREE.Color("#0044ff"), // Deep blue outer arms
+  };
+
+  const [geometry, material] = useMemo(() => {
+    const geometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(parameters.count * 3);
+    const colors = new Float32Array(parameters.count * 3);
+    const scales = new Float32Array(parameters.count * 1);
+
+    for (let i = 0; i < parameters.count; i++) {
+      const i3 = i * 3;
+
+      const radius = Math.random() * parameters.radius;
+      const spinAngle = radius * parameters.spin;
+      const branchAngle = ((i % parameters.branches) / parameters.branches) * Math.PI * 2;
+
+      const randomX = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+      const randomY = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+      const randomZ = Math.pow(Math.random(), parameters.randomnessPower) * (Math.random() < 0.5 ? 1 : -1) * parameters.randomness * radius;
+
+      positions[i3] = Math.cos(branchAngle + spinAngle) * radius + randomX;
+      positions[i3 + 1] = randomY;
+      positions[i3 + 2] = Math.sin(branchAngle + spinAngle) * radius + randomZ;
+
+      const mixedColor = parameters.insideColor.clone();
+      mixedColor.lerp(parameters.outsideColor, radius / parameters.radius);
+
+      colors[i3] = mixedColor.r;
+      colors[i3 + 1] = mixedColor.g;
+      colors[i3 + 2] = mixedColor.b;
+
+      scales[i] = Math.random();
     }
-  `,
-  fragmentShader: `
-    varying vec2 vUv;
-    uniform sampler2D uTexture;
-    uniform float uTime;
-    uniform float uAudioLevel;
 
-    void main() {
-      vec2 uv = vUv;
-      
-      // Visual center of the galaxy in the image
-      vec2 center = vec2(0.5, 0.52); 
-      
-      // Perspective ratio of the hologram table (it's very flat)
-      float perspectiveY = 0.25; 
-      
-      vec2 delta = uv - center;
-      
-      // Un-squash the Y axis to calculate true circular distance in the 3D plane
-      delta.y /= perspectiveY;
-      float dist = length(delta);
-      
-      // Radius of the rotating galaxy
-      float radius = 0.45;
-      
-      if (dist < radius) {
-          // Smooth falloff so the rotating center blends seamlessly into the static base
-          float falloff = smoothstep(radius, radius * 0.4, dist);
-          
-          // Rotation angle: continuous slow spin + audio reactivity
-          float angle = (uTime * 0.8 + uAudioLevel * 2.5) * falloff;
-          
-          float s = sin(angle);
-          float c = cos(angle);
-          
-          // Rotate
-          vec2 rotatedDelta = vec2(
-              delta.x * c - delta.y * s,
-              delta.x * s + delta.y * c
-          );
-          
-          // Squash back to perspective
-          rotatedDelta.y *= perspectiveY;
-          uv = center + rotatedDelta;
-      }
-      
-      vec4 color = texture2D(uTexture, uv);
-      
-      // Audio-reactive pulsing core glow
-      float coreGlow = smoothstep(radius * 0.6, 0.0, dist);
-      color.rgb += vec3(0.0, 0.8, 1.0) * uAudioLevel * 0.4 * coreGlow;
-      
-      gl_FragColor = color;
-    }
-  `
-};
+    geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.setAttribute("aScale", new THREE.BufferAttribute(scales, 1));
 
-function HologramMesh({ mouthOpeningRef, textureUrl }: HologramMeshProps) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
-  const texture = useLoader(THREE.TextureLoader, textureUrl);
+    const material = new THREE.ShaderMaterial({
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true,
+      transparent: true,
+      uniforms: {
+        uTime: { value: 0 },
+        uAudio: { value: 0 },
+        uSize: { value: 25.0 * (typeof window !== "undefined" ? window.devicePixelRatio : 1) }
+      },
+      vertexShader: `
+        uniform float uTime;
+        uniform float uAudio;
+        uniform float uSize;
+        attribute float aScale;
+        varying vec3 vColor;
+        
+        void main() {
+          vec4 modelPosition = modelMatrix * vec4(position, 1.0);
+          
+          float distanceToCenter = length(modelPosition.xz);
+          
+          // Audio reactivity: expand and throb the Y axis slightly
+          modelPosition.y += sin(distanceToCenter * 4.0 - uTime * 3.0) * uAudio * 0.4;
+          
+          vec4 viewPosition = viewMatrix * modelPosition;
+          vec4 projectedPosition = projectionMatrix * viewPosition;
+          
+          gl_Position = projectedPosition;
+          
+          // Point size pulses with audio
+          gl_PointSize = uSize * aScale * (1.0 + uAudio * 1.5);
+          gl_PointSize *= (1.0 / -viewPosition.z); // Size attenuation
+          
+          vColor = color;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        uniform float uAudio;
+        
+        void main() {
+          // Soft circular particle
+          float strength = distance(gl_PointCoord, vec2(0.5));
+          strength = 1.0 - strength;
+          strength = pow(strength, 4.0); // Make it a glowing dot
+          
+          // Audio boost brightness
+          vec3 finalColor = vColor * (1.0 + uAudio * 2.5);
+          
+          gl_FragColor = vec4(finalColor, strength);
+        }
+      `
+    });
 
-  // Approximate aspect ratio of the ultra-wide image
-  const planeW = 14;
-  const planeH = planeW * (522 / 1400); // Guessed aspect ratio for wide image
+    return [geometry, material];
+  }, []);
 
   useFrame((state) => {
-    if (!meshRef.current || !materialRef.current) return;
+    if (!pointsRef.current) return;
     const time = state.clock.getElapsedTime();
     const audioLvl = mouthOpeningRef.current;
 
-    // Update shader uniforms
-    materialRef.current.uniforms.uTime.value = time;
-    materialRef.current.uniforms.uAudioLevel.value = audioLvl;
+    // Slowly rotate the entire galaxy
+    pointsRef.current.rotation.y = time * 0.15 + (audioLvl * 0.2); // Spin slightly faster when talking
+    
+    // Tilt to match the perspective of the table in the background image
+    pointsRef.current.rotation.x = 1.25; 
+    
+    // Shift slightly down to align with the physical table in the image
+    pointsRef.current.position.y = -0.5;
 
-    // Very subtle floating parallax for the whole scene
-    meshRef.current.position.y = Math.sin(time * 1.2) * 0.1;
-    meshRef.current.position.x = Math.cos(time * 0.7) * 0.05;
-    meshRef.current.rotation.y = Math.sin(time * 0.5) * 0.02;
-    meshRef.current.rotation.x = Math.cos(time * 0.6) * 0.01;
+    // Pass uniforms
+    material.uniforms.uTime.value = time;
+    material.uniforms.uAudio.value = audioLvl;
   });
 
   return (
-    <mesh ref={meshRef}>
-      <planeGeometry args={[planeW, planeH, 32, 32]} />
-      <shaderMaterial
-        ref={materialRef}
-        args={[HologramShaderMaterial]}
-        uniforms-uTexture-value={texture}
-        transparent={true}
-      />
-    </mesh>
+    <points ref={pointsRef} geometry={geometry} material={material} />
   );
 }
 
-export default function HologramAvatar3D({ mouthOpeningRef, textureUrl }: HologramMeshProps) {
+export default function HologramAvatar3D({ mouthOpeningRef }: HologramMeshProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   if (!mounted) return null;
 
   return (
-    <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center bg-black">
+    <div className="absolute inset-0 z-0 pointer-events-none flex items-center justify-center">
       <Canvas
-        camera={{ position: [0, 0, 4.5], fov: 50 }}
+        camera={{ position: [0, 2, 8], fov: 60 }}
         gl={{ alpha: true, antialias: true }}
       >
-        <HologramMesh mouthOpeningRef={mouthOpeningRef} textureUrl={textureUrl} />
+        <AnimatedGalaxy mouthOpeningRef={mouthOpeningRef} />
       </Canvas>
     </div>
   );
