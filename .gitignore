@@ -5,6 +5,7 @@
 *.env
 APIs/
 mobile/assets/.env
+source/assistant_data.json
 
 # Python
 .venv/
