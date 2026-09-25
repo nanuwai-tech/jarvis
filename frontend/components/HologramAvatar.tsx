@@ -32,18 +32,7 @@ export default function HologramAvatar({
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const imageRef = useRef<HTMLImageElement | null>(null);
-  const [imageLoaded, setImageLoaded] = useState(false);
-
-  // Load avatar base image
-  useEffect(() => {
-    const img = new Image();
-    img.src = "/avatar.png";
-    img.onload = () => {
-      imageRef.current = img;
-      setImageLoaded(true);
-    };
-  }, []);
+  // Image is now loaded in HologramAvatar3D
 
   // Set up Web Audio Analyser when audioTrack changes
   useEffect(() => {
@@ -156,47 +145,33 @@ export default function HologramAvatar({
 
       ctx.save();
 
-      const origW = 746;
-      const origH = 522;
-      const scale = Math.min(
-        (canvas.width * 0.95) / origW,
-        (canvas.height * 0.95) / origH
-      );
-      const renderW = origW * scale;
-      const renderH = origH * scale;
-
-      const floatY = Math.sin(time * 1.4) * 5;
-      const floatX = Math.cos(time * 0.8) * 2;
-      const renderX = (canvas.width - renderW) / 2 + floatX;
-      const renderY = (canvas.height - renderH) / 2 + floatY;
-
-      // 6. Holographic Scanline Overlay & Vertical Raster Beams
-      const scanlineSpacing = 3;
-      ctx.fillStyle = "rgba(0, 229, 255, 0.035)";
-      for (let y = renderY; y < renderY + renderH; y += scanlineSpacing) {
-        ctx.fillRect(renderX, y, renderW, 1);
+      // 6. Holographic Scanline Overlay
+      const scanlineSpacing = 4;
+      ctx.fillStyle = "rgba(0, 229, 255, 0.02)";
+      for (let y = 0; y < canvas.height; y += scanlineSpacing) {
+        ctx.fillRect(0, y, canvas.width, 1);
       }
 
       // High-intensity sweeping holographic laser scanline
-      const sweepY = renderY + ((time * 85) % (renderH + 100));
-      const sweepGrad = ctx.createLinearGradient(0, sweepY - 15, 0, sweepY + 15);
+      const sweepY = (time * 120) % (canvas.height + 100) - 50;
+      const sweepGrad = ctx.createLinearGradient(0, sweepY - 20, 0, sweepY + 20);
       sweepGrad.addColorStop(0, "rgba(0, 229, 255, 0)");
-      sweepGrad.addColorStop(0.5, "rgba(0, 245, 255, 0.28)");
+      sweepGrad.addColorStop(0.5, "rgba(0, 245, 255, 0.15)");
       sweepGrad.addColorStop(1, "rgba(0, 229, 255, 0)");
       ctx.fillStyle = sweepGrad;
-      ctx.fillRect(renderX, sweepY - 15, renderW, 30);
+      ctx.fillRect(0, sweepY - 20, canvas.width, 40);
 
       // 7. Holographic Particle Dust System
       if (particles.length < maxParticles && Math.random() < 0.4) {
         particles.push({
-          x: renderX + Math.random() * renderW,
-          y: renderY + renderH * 0.7 + Math.random() * (renderH * 0.3),
-          vx: (Math.random() - 0.5) * 0.8,
-          vy: -(Math.random() * 1.5 + 0.8),
+          x: canvas.width * 0.2 + Math.random() * (canvas.width * 0.6), // Spawn mostly in the center 60%
+          y: canvas.height * 0.6 + Math.random() * (canvas.height * 0.4), // Spawn mostly in the bottom 40%
+          vx: (Math.random() - 0.5) * 1.5,
+          vy: -(Math.random() * 2.0 + 1.0),
           size: Math.random() * 2 + 1,
           alpha: Math.random() * 0.7 + 0.3,
           life: 0,
-          maxLife: Math.random() * 80 + 40,
+          maxLife: Math.random() * 120 + 60,
         });
       }
 
@@ -210,9 +185,9 @@ export default function HologramAvatar({
 
         ctx.fillStyle = `rgba(0, 229, 255, ${Math.min(1.0, pAlpha)})`;
         ctx.shadowColor = "#00e5ff";
-        ctx.shadowBlur = 6;
+        ctx.shadowBlur = 8;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * scale, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
 
@@ -223,12 +198,12 @@ export default function HologramAvatar({
 
       // 8. Subtle Listening Resonance Wave (When User Speaks / Mic Active)
       if (state === "listening") {
-        const pulseR = ((time * 60) % 180) * scale;
-        const pulseAlpha = Math.max(0, 1 - pulseR / (180 * scale)) * 0.35;
+        const pulseR = (time * 100) % 300;
+        const pulseAlpha = Math.max(0, 1 - pulseR / 300) * 0.35;
         ctx.strokeStyle = `rgba(52, 211, 153, ${pulseAlpha})`;
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(renderX + renderW / 2, renderY + renderH * 0.42, 60 * scale + pulseR, 0, Math.PI * 2);
+        ctx.ellipse(canvas.width / 2, canvas.height * 0.52, 200 + pulseR, 60 + pulseR * 0.3, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -242,14 +217,14 @@ export default function HologramAvatar({
       cancelAnimationFrame(animationFrameId);
       window.removeEventListener("resize", handleResize);
     };
-  }, [imageLoaded, state]);
+  }, [state]);
 
   return (
     <div
       onClick={onScreenClick}
       className="fixed inset-0 w-screen h-screen overflow-hidden bg-[#010408] cursor-pointer select-none relative"
     >
-      <HologramAvatar3D mouthOpeningRef={mouthOpeningRef} textureUrl="/avatar.png" />
+      <HologramAvatar3D mouthOpeningRef={mouthOpeningRef} textureUrl="/hologram_base.png" />
       <canvas
         ref={canvasRef}
         className="w-full h-full block absolute inset-0 pointer-events-none z-10 mix-blend-screen"
