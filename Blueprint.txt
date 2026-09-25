@@ -1,0 +1,417 @@
+================================================================================
+ JARVIS VOICE AGENT -- BUILD BLUEPRINT
+ A detailed, step-by-step implementation reference
+================================================================================
+
+OVERVIEW
+--------
+This blueprint walks through building a real-time, multimodal voice
+assistant ("Jarvis") using the LiveKit Agents framework and Google's
+Gemini live model, then extending it with tools, a custom web frontend,
+and a mobile app. Follow the phases in order -- each one assumes the
+previous phase is working.
+
+
+================================================================================
+ PHASE 0 -- PREREQUISITES
+================================================================================
+
+Install, in this order:
+
+  1. Python 3.10+          -> python.org
+  2. uv (Python packaging)  -> astral.sh/uv
+  3. Node.js (LTS)          -> nodejs.org        (needed later, for the frontend)
+  4. VS Code (or any IDE)   -> code.visualstudio.com
+  5. LiveKit CLI            -> docs.livekit.io/home/cli/cli-setup
+
+Create a free LiveKit Cloud account at cloud.livekit.io:
+  - Sign up (Google sign-in works)
+  - Create a project (e.g. "jarvis")
+  - You can disable "agent observability" for now
+  - Free tier: ~1,000 connection-minutes/month (~16 hours)
+
+
+================================================================================
+ PHASE 1 -- SCAFFOLD THE AGENT
+================================================================================
+
+1. Authenticate the CLI to your machine and project:
+
+     lk cloud auth --device-name "jarvis-dev"
+
+   This opens a browser window -- select your project and click
+   "Allow access". Back in the terminal, confirm it as your default
+   project when asked.
+
+2. Download the starter agent template:
+
+     lk app create --template voice-agent-python jarvis
+     cd jarvis
+     uv sync            # installs dependencies (press Enter through prompts)
+
+3. Run it locally in console mode to sanity-check the install:
+
+     uv run source/agent.py console
+
+   Or in dev mode with the hosted web playground:
+
+     lk agent dev
+
+   Open the printed playground link, click "Start a session", and talk
+   to the default agent. You should get a response. Ctrl+C to stop.
+
+Project layout at this point:
+
+   jarvis/
+     .env.local            <- API keys and secrets (never commit this)
+     pyproject.toml
+     source/
+       agent.py            <- main agent entry point
+
+
+================================================================================
+ PHASE 2 -- WRITE THE PERSONA (SYSTEM PROMPT)
+================================================================================
+
+Open source/agent.py and find the `instructions` string passed when the
+agent is constructed. Replace it with a persona definition. Example:
+
+  ---------------------------------------------------------------------
+  instructions = """
+  You are Jarvis, a witty and impeccably composed AI butler.
+
+  PERSONALITY
+  - Speak with dry, understated wit -- clever, never cruel.
+  - Address the user as "sir" (or their preferred title) unless told
+    otherwise.
+  - Stay unflappable and efficient, like someone who has seen everything.
+  - Keep responses concise; you are a voice assistant, not an essayist.
+
+  CAPABILITIES
+  - You can see through the user's camera and shared screen when active.
+    Describe what you observe naturally, without narrating that you're
+    "looking."
+  - You can hear and respond in whatever language the user speaks to you in.
+
+  CONVERSATIONAL EXAMPLES
+  User: "Jarvis, can you check the weather in Rome?"
+  Jarvis: "Of course, sir. Rome is a pleasant 24 degrees with clear
+  skies -- perfect for anyone unwise enough to be outdoors on a workday."
+
+  User: "Open Google Maps and find the way to the airport."
+  Jarvis: "As you wish, sir. Maps is open with directions to the
+  airport -- the fastest route runs about twenty minutes, traffic
+  permitting."
+
+  BOUNDARIES
+  - Never fabricate information a tool could verify -- search, or say
+    you don't know.
+  - Keep the humor light; drop it entirely if the user seems stressed
+    or the topic turns serious.
+  """
+  ---------------------------------------------------------------------
+
+Save the file. Any future behavior change (tone, new rule, new tool
+instruction) is made here, in plain language.
+
+
+================================================================================
+ PHASE 3 -- SWITCH THE MODEL TO GEMINI LIVE
+================================================================================
+
+1. Add the Google plugin dependency:
+
+     uv add livekit-plugins-google
+
+2. Get a free Gemini API key:
+     - Go to Google AI Studio (aistudio.google.com)
+     - Sign in, click "Create API key"
+     - Create or select a Google Cloud project, name the key, create it
+     - Copy the key
+
+3. Store it in .env.local (create the entry, don't commit this file):
+
+     GOOGLE_API_KEY=your-key-here
+
+4. In source/agent.py:
+     - Import the plugin:      from livekit.plugins import google
+     - Remove any separate STT / TTS plugin lines -- the live model
+       handles speech-to-text and text-to-speech itself
+     - Replace the LLM/model line with the realtime multimodal model,
+       e.g.:
+
+         llm=google.beta.realtime.RealtimeModel(
+             voice="<a male/female voice id>",
+             language="en-US",   # change for another primary language
+         )
+
+5. Enable camera/screen vision -- in the room input options, add:
+
+     video_input=True
+
+6. Add the image/video plugin extra the SDK needs for frames:
+
+     uv add "livekit-agents[images]"
+
+7. Re-run and test:
+
+     lk agent dev
+
+   Ask it to describe what it can see through your camera, and try a
+   sentence in a second language to confirm multilingual responses.
+
+NOTE ON COST: this specific Gemini live model tier is free to use.
+Google AI Studio currently shows unlimited requests-per-minute and
+requests-per-day for it; the only cap is tokens-per-minute (~65,000 at
+time of writing). A single agent session uses a small fraction of that,
+so you'd only hit the ceiling running several sessions at once on the
+same key.
+
+
+================================================================================
+ PHASE 4 -- ADD FUNCTION TOOLS (WEB SEARCH EXAMPLE)
+================================================================================
+
+1. Add dependencies:
+
+     uv add langchain-community ddgs
+
+2. Create source/tools.py:
+
+  ---------------------------------------------------------------------
+  import logging
+  from livekit.agents import function_tool, RunContext
+  from langchain_community.tools import DuckDuckGoSearchRun
+
+  logger = logging.getLogger("jarvis-tools")
+
+  @function_tool()
+  async def search_web(context: RunContext, query: str) -> str:
+      """Use this tool to search the web for information related to
+      the given query."""
+      try:
+          results = DuckDuckGoSearchRun().run(query)
+          logger.info(f"search_web result for '{query}': {results}")
+          return results
+      except Exception as e:
+          logger.error(f"search_web failed: {e}")
+          return "The web search failed. Let the user know."
+  ---------------------------------------------------------------------
+
+3. Wire it into source/agent.py:
+
+     from tools import search_web
+     ...
+     tools=[search_web]
+
+4. Tell the model when to use it -- add a line to the system prompt:
+
+     TOOLS
+     - Use the search_web tool if the user asks you to search for
+       information, or needs a current fact you don't already know
+       (weather, news, prices, etc.).
+
+5. Test with console mode so you can see the tool call and result
+   printed to the terminal:
+
+     uv run source/agent.py console
+
+   Ask: "What's the weather in Vienna?" -- you should see the tool
+   invoked in the console log before Jarvis answers.
+
+THE GENERAL PATTERN for any new tool is always these three steps:
+   1. Write an async function, decorated with @function_tool(), with a
+      clear docstring and named parameters.
+   2. Register it in the agent's `tools=[...]` list.
+   3. Add one line to the system prompt telling the model when to use it.
+
+
+================================================================================
+ PHASE 5 -- SCALE UP WITH A CODING AGENT (BROWSER CONTROL EXAMPLE)
+================================================================================
+
+Rather than hand-writing every tool, delegate larger features to a
+coding agent once the base pattern above is understood.
+
+1. Install a coding agent, e.g. OpenCode (free, open source):
+
+     curl -fsSL https://opencode.ai/install | bash
+     # or, if that fails:
+     npm install -g opencode-ai
+
+   (Claude Code, Codex, or GitHub Copilot work the same way.)
+
+2. Start it in your project folder:
+
+     opencode
+
+3. Connect the LiveKit docs MCP server so the coding agent has grounded,
+   accurate knowledge of the framework. Ask it directly:
+
+     "Here's a guide to set up an MCP server: <link to the opencode MCP
+     docs>. Create an opencode.json file and add this MCP server from
+     LiveKit: <link to the LiveKit docs MCP server page>."
+
+   This generates an opencode.json with the MCP server registered.
+   Restart the session (kill terminal, reopen, run `opencode`, `/session`
+   to resume) so the new MCP config loads, then check it with `/mcp`.
+
+4. Use PLAN mode before BUILD mode for anything non-trivial:
+
+     /agents            (switch to "plan")
+     "Create me a plan to add the entire functionality of Playwright to
+     the Jarvis voice agent through additional tools that gives Jarvis
+     full control over a browser."
+
+   Review the plan (dependencies to install, a new browser.py file,
+   which tools it will create, how it will update agent.py and the
+   system prompt). Then switch back and approve:
+
+     /agents            (switch to "build")
+     "Go ahead and build this."
+
+   Expected result: a new source/browser.py containing tools such as
+   open_browser, close_browser, navigate, go_back, click_element,
+   open_tab, and switch_tab, registered in agent.py, with the system
+   prompt updated to explain when to use each one.
+
+5. Test the same way as before (`lk agent dev`), asking Jarvis to open
+   a search engine, click a result, go back, or navigate to a site.
+
+
+================================================================================
+ PHASE 6 -- BUILD A CUSTOM WEB FRONTEND
+================================================================================
+
+1. Ask the coding agent to fetch LiveKit's Next.js starter:
+
+     "Download the LiveKit Next.js voice agent frontend from
+     <github.com/livekit-examples/agent-starter-react (or similar)>
+     into this project, in a folder called frontend, and install
+     everything."
+
+2. Run both processes, in separate terminals:
+
+     # terminal 1 -- the agent
+     uv run source/agent.py dev
+
+     # terminal 2 -- the frontend
+     cd frontend
+     pnpm dev          # or: npm run dev
+
+3. Open the printed local URL in a browser and start a session.
+
+4. Customize the voice visualizer (style + color) via LiveKit's
+   "Agents UI" component docs, then ask the coding agent to apply it:
+
+     "I want to change the visualization animation to the grid style,
+     and change its color to #<hex-code>."
+
+5. The frontend also supports screen sharing out of the box -- click
+   the share-screen button during a session and ask Jarvis what it sees.
+
+
+================================================================================
+ PHASE 7 -- SHIP IT AS A MOBILE APP (ANDROID / iOS)
+================================================================================
+
+1. Ask the coding agent to download LiveKit's Flutter starter template
+   into a new folder (or clone it manually with git).
+
+2. Inside that folder, rename assets/.env.example to assets/.env.
+
+3. Get your Sandbox / Token Server ID:
+     - LiveKit Cloud dashboard -> Settings
+     - Scroll to "Development token server" -> toggle it on -> Save
+     - Copy the Sandbox ID shown
+
+4. Paste it into the app's .env file:
+
+     LIVEKIT_SANDBOX_ID=your-sandbox-id-here
+
+5. Install Flutter:
+     - VS Code: install the "Flutter" extension
+     - Terminal: ask the coding agent to "install Flutter for me", or
+       follow the manual quick-start at docs.flutter.dev
+     - Verify:  flutter --version
+
+6. Android device setup:
+     - Settings -> About phone -> tap "Build number" 7 times (enables
+       developer mode)
+     - Settings -> Developer options -> enable "USB debugging"
+     - Plug the phone in, tap "Allow" on the device when prompted
+
+7. Build and deploy:
+
+     cd <flutter-project-folder>
+     flutter devices          # confirm your phone is listed
+     flutter pub get
+     flutter run -d <device-id>
+
+8. Make sure the agent is running in parallel (uv run source/agent.py
+   dev) so the app has something to connect to.
+
+   iOS follows the same flow, but requires enabling developer mode on
+   the iPhone first (Settings -> Privacy & Security -> Developer Mode).
+
+
+================================================================================
+ FOLDER STRUCTURE (END STATE)
+================================================================================
+
+   jarvis/
+     .env.local                 GOOGLE_API_KEY, LIVEKIT_* secrets
+     opencode.json               MCP server config for the coding agent
+     pyproject.toml
+     source/
+       agent.py                  entry point, persona, model, tool wiring
+       tools.py                  search_web and other simple tools
+       browser.py                Playwright browser-control tools
+     frontend/                   Next.js "Agents UI" web app
+       ...
+     mobile/                     Flutter starter app (Android + iOS)
+       assets/.env                LIVEKIT_SANDBOX_ID
+
+
+================================================================================
+ ENVIRONMENT VARIABLES REFERENCE
+================================================================================
+
+   File                 Variable                  Purpose
+   -----                --------                  -------
+   .env.local            GOOGLE_API_KEY             Gemini live model auth
+   .env.local            LIVEKIT_URL                LiveKit Cloud WS URL
+   .env.local            LIVEKIT_API_KEY            Agent auth to LiveKit
+   .env.local            LIVEKIT_API_SECRET         Agent auth to LiveKit
+   mobile/assets/.env    LIVEKIT_SANDBOX_ID         Mobile app token server
+
+
+================================================================================
+ COMMAND QUICK REFERENCE
+================================================================================
+
+   lk cloud auth --device-name "<name>"      authenticate CLI to a project
+   lk app create --template voice-agent-python <name>   scaffold new agent
+   uv sync                                    install Python dependencies
+   uv add <package>                           add a Python dependency
+   uv run source/agent.py console             run locally, terminal chat
+   uv run source/agent.py dev                 run locally, web playground
+   lk agent dev                               alt. way to launch dev mode
+   opencode                                   start the coding agent
+   flutter devices / pub get / run -d <id>    build & deploy the mobile app
+   pnpm dev  (or npm run dev)                 run the Next.js frontend
+
+
+================================================================================
+ KNOWN LIMITATIONS
+================================================================================
+
+ - The Gemini live model only accepts voice input; typed chat messages
+   in a frontend's text box are not processed by this model.
+ - Browser-control tools run on the machine hosting the agent process,
+   not on the mobile app -- there's no browser to control from a phone.
+ - Free-tier Gemini usage is capped by tokens-per-minute, not by request
+   count -- watch this if you run multiple concurrent agent sessions.
+ - LiveKit Cloud's free tier caps monthly connection-minutes.
+
+================================================================================

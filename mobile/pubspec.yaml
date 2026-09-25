@@ -1,0 +1,26 @@
+name: jarvis_mobile
+description: "Jarvis - Cross-platform Multimodal Voice Assistant Flutter App"
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  livekit_client: ^2.2.0
+  flutter_dotenv: ^5.1.0
+  http: ^1.2.0
+  permission_handler: ^11.3.0
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/.env
