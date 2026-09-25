@@ -3,8 +3,8 @@ import "./globals.css";
 import "@livekit/components-styles";
 
 export const metadata: Metadata = {
-  title: "Jarvis - Multimodal Voice AI",
-  description: "Jarvis - Real-time Voice & Vision Multimodal AI Assistant",
+  title: "Jarvis Hologram",
+  description: "Jarvis - Holographic Multimodal Voice Assistant",
 };
 
 export default function RootLayout({
@@ -13,8 +13,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
-      <body className="bg-[#0B0E14] text-white min-h-screen flex flex-col justify-between selection:bg-cyan-500/30 selection:text-cyan-200">
+    <html lang="en" className="dark m-0 p-0 overflow-hidden">
+      <body className="bg-[#010408] text-white m-0 p-0 overflow-hidden w-screen h-screen select-none">
         {children}
       </body>
     </html>

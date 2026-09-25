@@ -23,6 +23,7 @@ frontend/.next/
 frontend/out/
 frontend/build/
 frontend/.env.local
+*.tsbuildinfo
 
 # Flutter / Mobile
 mobile/.dart_tool/
