@@ -20,9 +20,7 @@ logger = logging.getLogger("jarvis-assistant-tools")
 
 @function_tool
 async def add_task(title: str, due: Optional[str] = None) -> str:
-    """Add a task or to-do item. `due`, if given, should be an ISO date
-    (YYYY-MM-DD) or date+time (YYYY-MM-DD HH:MM). Use this whenever the
-    user asks you to remember something they need to do."""
+    """Add a task or to-do item with optional due date (e.g. YYYY-MM-DD or YYYY-MM-DD HH:MM)."""
     task = store.add_task(title, due)
     logger.info(f"Added task: {task}")
     if due:
@@ -32,8 +30,7 @@ async def add_task(title: str, due: Optional[str] = None) -> str:
 
 @function_tool
 async def list_tasks() -> str:
-    """List the user's outstanding (not yet completed) tasks. Use this
-    when the user asks what they need to do, or for their to-do list."""
+    """List all outstanding, pending tasks and to-dos."""
     tasks = store.list_tasks(pending_only=True)
     if not tasks:
         return "You have no outstanding tasks, sir."
@@ -43,8 +40,7 @@ async def list_tasks() -> str:
 
 @function_tool
 async def complete_task(title: str) -> str:
-    """Mark a task as complete by its title. Use this when the user
-    says they've finished or done something that was on their list."""
+    """Mark a task as completed by title."""
     ok = store.complete_task(title)
     return f"Marked '{title}' as completed, sir." if ok else \
         f"I couldn't find an open task called '{title}', sir."
@@ -52,9 +48,7 @@ async def complete_task(title: str) -> str:
 
 @function_tool
 async def schedule_event(title: str, start: str, end: Optional[str] = None, location: Optional[str] = None) -> str:
-    """Schedule a meeting or event. `start` and `end` should be ISO
-    date+time (YYYY-MM-DD HH:MM); `end` is optional. Use this whenever
-    the user asks you to book, schedule, or put something on the calendar."""
+    """Schedule a calendar event or meeting with start time (YYYY-MM-DD HH:MM) and optional location."""
     store.add_event(title, start, end, location)
     logger.info(f"Scheduled event: {title} at {start}")
     where = f" at {location}" if location else ""
@@ -63,9 +57,7 @@ async def schedule_event(title: str, start: str, end: Optional[str] = None, loca
 
 @function_tool
 async def list_events(on_date: Optional[str] = None) -> str:
-    """List calendar events. Pass `on_date` as an ISO date (YYYY-MM-DD)
-    to filter to a single day, or omit it to list everything upcoming.
-    Use this when the user asks what's on their schedule or calendar."""
+    """List calendar events for today, upcoming, or for a specific date (YYYY-MM-DD)."""
     events = store.list_events(on_date)
     if not events:
         return "Nothing on the calendar" + (f" for {on_date}, sir." if on_date else ", sir.")
@@ -78,8 +70,7 @@ async def list_events(on_date: Optional[str] = None) -> str:
 
 @function_tool
 async def whats_next() -> str:
-    """Tell the user their next upcoming calendar event. Use this when
-    they ask what's next, or what they have coming up."""
+    """Get the very next upcoming calendar event or meeting."""
     event = store.next_event()
     if not event:
         return "There is nothing upcoming on your calendar, sir."
@@ -89,8 +80,7 @@ async def whats_next() -> str:
 
 @function_tool
 async def cancel_event(title: str) -> str:
-    """Cancel or remove a calendar event by title. Use this when the
-    user asks to cancel, delete, or clear a meeting."""
+    """Cancel or remove a calendar event by its title."""
     ok = store.cancel_event(title)
     return f"Cancelled '{title}', sir." if ok else f"I couldn't find an event called '{title}', sir."
 
@@ -99,17 +89,14 @@ async def cancel_event(title: str) -> str:
 
 @function_tool
 async def add_contact(name: str, phone: Optional[str] = None, email: Optional[str] = None, relationship: Optional[str] = None) -> str:
-    """Save a new contact. `relationship` is a short label like
-    'friend', 'colleague', or 'manager'. Use this when the user gives you
-    someone's details to remember."""
+    """Save a contact with phone, email, and relationship (friend, colleague, manager)."""
     store.add_contact(name, phone, email, relationship)
     return f"Saved {name} to your contacts, sir."
 
 
 @function_tool
 async def find_contact(name: str) -> str:
-    """Look up a saved contact's details by name. Use this when the
-    user asks for someone's phone number, email, or who someone is."""
+    """Look up a contact's phone number, email, and details by name."""
     c = store.find_contact(name)
     if not c:
         return f"I don't have a contact saved for '{name}', sir."
@@ -125,17 +112,14 @@ async def find_contact(name: str) -> str:
 
 @function_tool
 async def remember_important_date(name: str, on_date: str, occasion: str) -> str:
-    """Remember a recurring important date for someone, such as a
-    birthday or anniversary. `on_date` should be an ISO date
-    (YYYY-MM-DD); the year is ignored and it repeats yearly."""
+    """Save an annual birthday or anniversary (on_date in YYYY-MM-DD or MM-DD)."""
     store.add_important_date(name, on_date, occasion)
     return f"I will remember {name}'s {occasion} every year around {on_date[5:]}, sir."
 
 
 @function_tool
 async def upcoming_important_dates(days_ahead: int = 30) -> str:
-    """List important dates (birthdays, anniversaries) coming up within
-    the given number of days (default 30)."""
+    """List birthdays and anniversaries coming up in the next N days (default 30)."""
     dates = store.upcoming_important_dates(days_ahead)
     if not dates:
         return f"No important dates found in the next {days_ahead} days, sir."
@@ -145,9 +129,7 @@ async def upcoming_important_dates(days_ahead: int = 30) -> str:
 
 @function_tool
 async def draft_message(recipient: str, occasion_or_context: str, tone: str = "polite") -> str:
-    """Draft a short message to a contact for a given occasion or context
-    (e.g. 'happy birthday', 'confirming our meeting', 'running 10 minutes late').
-    Drafts text only — does not send."""
+    """Draft a text message for a contact in a specified tone (polite, witty, professional, warm)."""
     return (
         f"Here is a draft for {recipient} ({tone} tone): "
         f"\"Dear {recipient}, {occasion_or_context}. Please let me know if you need anything further.\""
@@ -158,16 +140,14 @@ async def draft_message(recipient: str, occasion_or_context: str, tone: str = "p
 
 @function_tool
 async def add_note(content: str, tag: Optional[str] = None) -> str:
-    """Save a personal note or thought, optionally tagged with a category
-    (e.g. 'work', 'idea', 'project'). Use this when the user asks to jot something down."""
+    """Save a personal note or idea, optionally tagged with a category."""
     store.add_note(content, tag)
     return "Noted, sir." if not tag else f"Noted and tagged '{tag}', sir."
 
 
 @function_tool
 async def search_notes(query: str) -> str:
-    """Search previously saved notes for a keyword. Use this when the
-    user asks what they wrote down about something."""
+    """Search saved notes by keyword or category tag."""
     notes = store.search_notes(query)
     if not notes:
         return f"No notes found matching '{query}', sir."
@@ -176,8 +156,7 @@ async def search_notes(query: str) -> str:
 
 @function_tool
 async def add_to_shopping_list(item: str, quantity: Optional[str] = None) -> str:
-    """Add an item to the shopping list. Use this when the user says
-    they need to buy or pick up something."""
+    """Add an item with optional quantity to the shopping/grocery list."""
     store.add_shopping_item(item, quantity)
     return (f"Added {quantity} {item} to your shopping list, sir." if quantity
             else f"Added '{item}' to your shopping list, sir.")
@@ -185,8 +164,7 @@ async def add_to_shopping_list(item: str, quantity: Optional[str] = None) -> str
 
 @function_tool
 async def list_shopping_list() -> str:
-    """Read back the current shopping list. Use this when the user asks
-    what's on their shopping list, or before they go shopping."""
+    """Read back all items on the current shopping list."""
     items = store.list_shopping()
     if not items:
         return "Your shopping list is currently empty, sir."
@@ -196,13 +174,11 @@ async def list_shopping_list() -> str:
 
 @function_tool
 async def clear_shopping_list() -> str:
-    """Clear the entire shopping list. Use this when the user says
-    they have finished shopping or want to reset the list."""
+    """Clear all items from the shopping list."""
     store.clear_shopping()
     return "Shopping list cleared, sir."
 
 
-# Consolidated list of all assistant function tools
 ASSISTANT_TOOLS = [
     add_task,
     list_tasks,

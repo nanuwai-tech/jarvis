@@ -69,47 +69,29 @@ def build_llm_fallback_chain() -> llm.LLM:
     
     llm_instances: List[llm.LLM] = []
 
-    # 1. Ultra-fast OpenRouter Gemini Flash model
-    if openrouter_key:
-        llm_instances.append(
-            openai.LLM(
-                model="google/gemini-2.5-flash",
-                base_url="https://openrouter.ai/api/v1",
-                api_key=openrouter_key,
-                temperature=0.7,
-            )
-        )
-        # 2. OpenRouter Fast Fallback (GPT-4o Mini)
-        llm_instances.append(
-            openai.LLM(
-                model="openai/gpt-4o-mini",
-                base_url="https://openrouter.ai/api/v1",
-                api_key=openrouter_key,
-                temperature=0.7,
-            )
-        )
-        # 3. OpenRouter High-Capacity Fallback (Llama 3.3 70B)
-        llm_instances.append(
-            openai.LLM(
-                model="meta-llama/llama-3.3-70b-instruct",
-                base_url="https://openrouter.ai/api/v1",
-                api_key=openrouter_key,
-                temperature=0.7,
-            )
-        )
-
-    # 4. Direct Google Gemini LLM
+    # Direct Google Gemini Flash LLM
     if google_key and google_key != "PLACEHOLDER_KEY":
         try:
             llm_instances.append(
                 google.LLM(
                     model="gemini-2.5-flash",
                     api_key=google_key,
-                    temperature=0.7,
+                    temperature=0.6,
                 )
             )
         except Exception as e:
             logger.warning(f"Could not initialize direct Google LLM: {e}")
+
+    # OpenRouter Fallback
+    if openrouter_key:
+        llm_instances.append(
+            openai.LLM(
+                model="google/gemini-2.5-flash",
+                base_url="https://openrouter.ai/api/v1",
+                api_key=openrouter_key,
+                temperature=0.6,
+            )
+        )
 
     if not llm_instances:
         return openai.LLM(
@@ -123,7 +105,7 @@ def build_llm_fallback_chain() -> llm.LLM:
 
     return llm.FallbackAdapter(
         llm=llm_instances,
-        attempt_timeout=2.5,
+        attempt_timeout=2.0,
         retry_interval=0.2,
     )
 
@@ -133,17 +115,20 @@ def create_jarvis_agent(
     voice: str = "Aoede",
     api_key: Optional[str] = None
 ) -> tuple[Agent, any]:
-    """Factory creating the Jarvis Agent instance with all 25 tools."""
+    """Factory creating the Jarvis Agent instance with optimized low-latency settings."""
     key = api_key or os.getenv("GOOGLE_API_KEY") or "PLACEHOLDER_KEY"
     engine_mode = os.getenv("AGENT_ENGINE", "realtime").lower()
 
     if engine_mode == "fallback":
         model = build_llm_fallback_chain()
     else:
+        # Native Audio Flash Model for sub-second streaming
         model = google.realtime.RealtimeModel(
+            model="gemini-2.5-flash-native-audio-preview-12-2025",
             voice=voice,
             instructions=instructions,
             api_key=key,
+            temperature=0.6,
         )
 
     agent = Agent(
@@ -166,14 +151,18 @@ async def entrypoint(ctx: JobContext):
 
     agent, model = create_jarvis_agent()
 
+    # Ultra-Low Latency Turn Detection:
+    # min_delay = 0.1s (100ms pause starts processing)
+    # max_delay = 0.35s (350ms forces turn completion)
+    # Instant response within ~1 to 2 seconds
     turn_handling = TurnHandlingOptions(
         endpointing=EndpointingOptions(
-            min_delay=0.15,
-            max_delay=0.45,
+            min_delay=0.1,
+            max_delay=0.35,
         ),
         interruption=InterruptionOptions(
             enabled=True,
-            min_duration=0.2,
+            min_duration=0.15,
         ),
     )
 
@@ -186,7 +175,7 @@ async def entrypoint(ctx: JobContext):
     )
 
     await session.start(agent, room=ctx.room)
-    logger.info("Jarvis session active with 25 personal assistant and browser tools.")
+    logger.info("Jarvis session active with 25 personal assistant and browser tools (ultra-low latency).")
 
 
 if __name__ == "__main__":
